@@ -1,0 +1,494 @@
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
+
+class MoodTrackerScreen extends StatefulWidget {
+  const MoodTrackerScreen({super.key});
+  @override
+  State<MoodTrackerScreen> createState() => _MoodTrackerScreenState();
+}
+
+class _MoodTrackerScreenState extends State<MoodTrackerScreen> {
+  final List<Map<String, dynamic>> _moodIntensities = [
+    {
+      'level': 3,
+      'emoji': '🌟🎉❤️',
+      'label': 'Ecstatic & Loving',
+      'color': Color(0xFFFF69B4),
+      'description': 'Feeling passionate, empowered, and joyful'
+    },
+    {
+      'level': 2,
+      'emoji': '😊🙏🌈',
+      'label': 'Happy & Connected',
+      'color': Color(0xFFFFD700),
+      'description': 'Feeling courageous, enthusiastic, and appreciative'
+    },
+    {
+      'level': 1,
+      'emoji': '😌🌞👍',
+      'label': 'Hopeful & Confident',
+      'color': Color(0xFF98FB98),
+      'description': 'Feeling optimistic, inspired, and positive'
+    },
+    {
+      'level': 0,
+      'emoji': '😐⚖️',
+      'label': 'Content & Balanced',
+      'color': Color(0xFFB0B0B0),
+      'description': 'Feeling satisfied and peaceful'
+    },
+    {
+      'level': -1,
+      'emoji': '😔😟',
+      'label': 'Disappointed & Worried',
+      'color': Color(0xFFFFB6C1),
+      'description': 'Feeling disappointed, doubtful, or frustrated'
+    },
+    {
+      'level': -2,
+      'emoji': '😠😨',
+      'label': 'Angry & Anxious',
+      'color': Color(0xFFFF4500),
+      'description': 'Feeling anxious, angry, or resentful'
+    },
+    {
+      'level': -3,
+      'emoji': '😢💔',
+      'label': 'Hopeless & Depressed',
+      'color': Color(0xFF6A5ACD),
+      'description': 'Feeling grief, guilt, or powerlessness'
+    },
+  ];
+
+  List<Map<String, dynamic>> _moodHistory = [];
+  int? _selectedMoodLevel;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMoodHistory();
+  }
+
+  Future<void> _loadMoodHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final history = prefs.getStringList('mood_history') ?? [];
+    final List<Map<String, dynamic>> loadedHistory = [];
+
+    for (final item in history) {
+      final parts = item.split('|');
+      if (parts.length >= 5) {
+        final level = int.parse(parts[2]);
+        if (level >= -3 && level <= 3) {
+          try {
+            final mood =
+                _moodIntensities.firstWhere((m) => m['level'] == level);
+            loadedHistory.add({
+              'date': parts[0],
+              'time': parts[1],
+              'level': level,
+              'emoji': mood['emoji'],
+              'label': mood['label']
+            });
+          } catch (e) {
+            continue;
+          }
+        }
+      }
+    }
+    setState(() => _moodHistory = loadedHistory);
+  }
+
+  Future<void> _clearOldData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('mood_history');
+    setState(() => _moodHistory = []);
+  }
+
+  Future<void> _saveMood(int level) async {
+    final prefs = await SharedPreferences.getInstance();
+    final now = DateTime.now(),
+        today = DateFormat('yyyy-MM-dd').format(now),
+        time = DateFormat('h:mm a').format(now);
+    final mood = _moodIntensities.firstWhere((m) => m['level'] == level);
+
+    final List<Map<String, dynamic>> updatedHistory = [..._moodHistory];
+    updatedHistory.insert(0, {
+      'date': today,
+      'time': time,
+      'level': level,
+      'emoji': mood['emoji'],
+      'label': mood['label']
+    });
+
+    final historyList = updatedHistory
+        .map((item) =>
+            '${item['date']}|${item['time']}|${item['level']}|${item['emoji']}|${item['label']}')
+        .toList();
+    await prefs.setStringList('mood_history', historyList);
+
+    setState(() {
+      _moodHistory = updatedHistory;
+      _selectedMoodLevel = level;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      backgroundColor: mood['color'],
+      duration: const Duration(seconds: 3),
+      content: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('${mood['emoji']} Mood recorded: ${mood['label']}'),
+            Text('At $time • ${mood['description']}',
+                style: TextStyle(fontSize: 12, color: Colors.white70)),
+          ]),
+    ));
+  }
+
+  Widget _buildCompactMoodCalendar() {
+    final now = DateTime.now();
+    final days =
+        List.generate(14, (index) => now.subtract(Duration(days: index)))
+            .reversed
+            .toList();
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Padding(
+          padding: EdgeInsets.only(bottom: 12.0),
+          child: Text('Recent Moods',
+              style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF4682B4)))),
+      GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7, crossAxisSpacing: 3, mainAxisSpacing: 3),
+          itemCount: days.length,
+          itemBuilder: (context, index) {
+            final day = days[index],
+                dayKey = DateFormat('yyyy-MM-dd').format(day);
+            Map<String, dynamic>? latestMoodEntry;
+            for (final entry in _moodHistory) {
+              if (entry['date'] == dayKey) {
+                latestMoodEntry = entry;
+                break;
+              }
+            }
+            final hasMood = latestMoodEntry != null,
+                moodLevel = hasMood ? latestMoodEntry['level'] as int : 0;
+            return Container(
+                height: 30,
+                decoration: BoxDecoration(
+                    color: hasMood
+                        ? _getMoodColor(moodLevel)
+                        : const Color(0xFFF5F5F5),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                        color: hasMood
+                            ? _getMoodColor(moodLevel)
+                            : Colors.grey.shade300)),
+                child: Center(
+                    child: Text(
+                        hasMood
+                            ? _getFirstEmoji(_getMoodEmoji(moodLevel))
+                            : DateFormat('d').format(day),
+                        style: TextStyle(
+                            fontSize: hasMood ? 12 : 10,
+                            fontWeight: FontWeight.bold,
+                            color: hasMood ? Colors.white : Colors.grey))));
+          }),
+    ]);
+  }
+
+  Color _getMoodColor(int level) {
+    try {
+      return _moodIntensities.firstWhere((m) => m['level'] == level)['color']
+          as Color;
+    } catch (e) {
+      return Colors.grey;
+    }
+  }
+
+  String _getMoodEmoji(int level) {
+    try {
+      return _moodIntensities.firstWhere((m) => m['level'] == level)['emoji']
+          as String;
+    } catch (e) {
+      return '❓';
+    }
+  }
+
+  Widget _buildMoodTrends() {
+    if (_moodHistory.length < 2) return const SizedBox();
+    final recentMoods = _moodHistory.take(7).toList();
+    final averageMood =
+        recentMoods.map((m) => m['level'] as int).reduce((a, b) => a + b) /
+            recentMoods.length;
+
+    String trendText;
+    Color trendColor;
+    if (averageMood >= 2) {
+      trendText = 'You\'ve been radiating positivity! ✨';
+      trendColor = Colors.pink;
+    } else if (averageMood >= 0.5) {
+      trendText = 'You\'re maintaining wonderful balance 🌈';
+      trendColor = Colors.green;
+    } else if (averageMood >= -1) {
+      trendText = 'You\'re navigating life\'s ups and downs 💫';
+      trendColor = Colors.blue;
+    } else {
+      trendText = 'Remember to be gentle with yourself 💝';
+      trendColor = Colors.purple;
+    }
+
+    return Container(
+        margin: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+            color: trendColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: trendColor.withOpacity(0.3))),
+        child: Row(children: [
+          Icon(Icons.insights, color: trendColor, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+              child: Text(trendText,
+                  style: TextStyle(
+                      color: trendColor,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 14))),
+        ]));
+  }
+
+  String _getFirstEmoji(String emojis) => emojis.substring(0, 2);
+
+  Widget _buildMoodButton(Map<String, dynamic> mood, bool isSelected) {
+    return GestureDetector(
+        onTap: () => _saveMood(mood['level'] as int),
+        child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+                color: isSelected ? mood['color'] as Color : Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                    color: isSelected
+                        ? mood['color'] as Color
+                        : Colors.grey.shade300,
+                    width: isSelected ? 2 : 1),
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                            color: (mood['color'] as Color).withOpacity(0.3),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1))
+                      ]
+                    : []),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text(mood['emoji'] as String,
+                  style: const TextStyle(fontSize: 20)),
+              const SizedBox(height: 4),
+              Text(mood['label'] as String,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 10,
+                      color: isSelected ? Colors.white : Colors.black87),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 2),
+              Text('Level ${mood['level']}',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 9,
+                      color:
+                          isSelected ? Colors.white70 : Colors.grey.shade600)),
+            ])));
+  }
+
+  String _getLastCheckInTime() {
+    if (_moodHistory.isEmpty) return 'No check-ins yet';
+    final lastEntry = _moodHistory.first,
+        today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    return lastEntry['date'] == today
+        ? 'Today at ${lastEntry['time']}'
+        : _formatDate(lastEntry['date'] as String);
+  }
+
+  String _formatDate(String dateString) {
+    try {
+      final date = DateFormat('yyyy-MM-dd').parse(dateString),
+          today = DateTime.now(),
+          yesterday = today.subtract(const Duration(days: 1));
+      if (date.year == today.year &&
+          date.month == today.month &&
+          date.day == today.day) return 'Today';
+      if (date.year == yesterday.year &&
+          date.month == yesterday.month &&
+          date.day == yesterday.day) return 'Yesterday';
+      return DateFormat('MMM d, yyyy').format(date);
+    } catch (e) {
+      return dateString;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+          title: const Text('Mood Spectrum'),
+          backgroundColor: const Color(0xFF87CEEB),
+          elevation: 0,
+          actions: [
+            if (_moodHistory.isNotEmpty)
+              IconButton(
+                  icon: const Icon(Icons.delete_sweep),
+                  onPressed: _clearOldData,
+                  tooltip: 'Clear All Data')
+          ]),
+      body: SafeArea(
+          bottom: true,
+          child: Container(
+              decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xFFE6F3FF), Color(0xFFF0F8FF)])),
+              child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Card(
+                            elevation: 2,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16)),
+                            child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(children: [
+                                  const Text('How are you feeling today?',
+                                      style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF4682B4))),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                      'Last check-in: ${_getLastCheckInTime()}',
+                                      style: const TextStyle(
+                                          fontSize: 12, color: Colors.grey)),
+                                  const SizedBox(height: 16),
+                                  SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceEvenly,
+                                          children: _moodIntensities
+                                              .map((mood) => Padding(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 4.0),
+                                                  child: _buildMoodButton(
+                                                      mood,
+                                                      _selectedMoodLevel ==
+                                                          mood['level'])))
+                                              .toList())),
+                                ]))),
+                        const SizedBox(height: 16),
+                        _buildMoodTrends(),
+                        if (_moodHistory.isNotEmpty)
+                          _buildCompactMoodCalendar(),
+                        const SizedBox(height: 16),
+                        if (_moodHistory.isNotEmpty) ...[
+                          const Text('Your Check-in History',
+                              style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF4682B4))),
+                          const SizedBox(height: 8),
+                          Expanded(
+                              child: ListView.builder(
+                                  itemCount: _moodHistory.length,
+                                  itemBuilder: (context, index) {
+                                    final entry = _moodHistory[index],
+                                        mood = _moodIntensities.firstWhere(
+                                            (m) =>
+                                                m['level'] == entry['level']);
+                                    return Card(
+                                        margin:
+                                            const EdgeInsets.only(bottom: 6),
+                                        elevation: 1,
+                                        child: ListTile(
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                  horizontal: 12, vertical: 4),
+                                          leading: Container(
+                                              width: 40,
+                                              height: 40,
+                                              decoration: BoxDecoration(
+                                                  color: mood['color'] as Color,
+                                                  shape: BoxShape.circle),
+                                              child: Center(
+                                                  child: Text(
+                                                      _getFirstEmoji(
+                                                          mood['emoji']
+                                                              as String),
+                                                      style: const TextStyle(
+                                                          fontSize: 16)))),
+                                          title: Text(mood['label'] as String,
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.w500,
+                                                  fontSize: 14)),
+                                          subtitle: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(_formatDate(
+                                                    entry['date'] as String)),
+                                                Text('at ${entry['time']}',
+                                                    style: const TextStyle(
+                                                        fontSize: 11,
+                                                        color: Colors.grey))
+                                              ]),
+                                          trailing: Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 4),
+                                              decoration: BoxDecoration(
+                                                  color:
+                                                      (mood['color'] as Color)
+                                                          .withOpacity(0.1),
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                          12)),
+                                              child: Text(
+                                                  'Level ${entry['level']}',
+                                                  style: TextStyle(
+                                                      color: mood['color']
+                                                          as Color,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 12))),
+                                        ));
+                                  })),
+                        ] else
+                          const Expanded(
+                              child: Center(
+                                  child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                Icon(Icons.psychology,
+                                    size: 50, color: Color(0xFF87CEEB)),
+                                SizedBox(height: 12),
+                                Text(
+                                    'Track your emotional journey\nStart by checking in with how you feel',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                        fontSize: 14, color: Colors.grey)),
+                              ]))),
+                      ])))),
+    );
+  }
+}
